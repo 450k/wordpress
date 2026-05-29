@@ -1,113 +1,80 @@
 ---
 /**
  * src/pages/blog/[...slug].astro
- * 記事詳細ページ — WordPress をヘッドレス CMS として使用
+ * 記事詳細ページ — Contentful
  */
-import DefaultLayout from '@/layouts/DefaultLayout.astro';
-import { Background } from '@/components/background';
-import {
-  getPosts,
-  getFeaturedMedia,
-  getCategories,
-  getTags,
-  formatDate,
-  type WPPost,
-  type WPTerm,
-} from "@/lib/wordpress";
+import { documentToHtmlString } from '@contentful/rich-text-html-renderer';
+import { BLOCKS, INLINES } from '@contentful/rich-text-types';
+import BasicLayout from '@/layouts/BasicLayout.astro';
+import { getAllSlugs, getPost, assetUrl, formatDate } from '@/lib/contentful';
 
 export async function getStaticPaths() {
-  const posts = await getPosts({ per_page: 100 });
-  return posts.map((post) => ({
-    params: { slug: decodeURIComponent(post.slug) },
-    props: { post },
-  }));
+  const slugs = await getAllSlugs();
+  return slugs.map((slug) => ({ params: { slug } }));
 }
 
-const { post } = Astro.props as { post: WPPost };
+const { slug } = Astro.params as { slug: string };
+const post = await getPost(slug);
 
-// アイキャッチ・カテゴリ・タグを並列取得
-const [featuredMedia, allCategories, allTags] = await Promise.all([
-  post.featured_media ? getFeaturedMedia(post.featured_media) : Promise.resolve(null),
-  getCategories(),
-  getTags(),
-]);
+if (!post) return Astro.redirect('/404');
 
-const featuredImageUrl =
-  featuredMedia?.media_details?.sizes?.large?.source_url ??
-  featuredMedia?.source_url ??
-  null;
+const { title, shortDescription, featuredImage, publishedDate, author, content, relatedBlogPosts } = post.fields;
 
-// この記事に紐づくカテゴリ・タグだけ抽出
-const postCategories: WPTerm[] = allCategories.filter((c) => post.categories.includes(c.id));
-const postTags: WPTerm[] = allTags.filter((t) => post.tags.includes(t.id));
+const imageUrl = assetUrl(featuredImage?.fields?.file?.url ?? '');
+const imageAlt = featuredImage?.fields?.title ?? title;
+const authorName = author?.fields?.name ?? '';
+const authorAvatarUrl = assetUrl(author?.fields?.avatar?.fields?.file?.url ?? '');
+const date = formatDate(publishedDate);
 
-const title = post.title.rendered;
-const date = formatDate(post.date);
+// RichText → HTML
+const bodyHtml = documentToHtmlString(content, {
+  renderNode: {
+    [BLOCKS.EMBEDDED_ASSET]: (node) => {
+      const url = assetUrl(node.data?.target?.fields?.file?.url ?? '');
+      const alt = node.data?.target?.fields?.title ?? '';
+      if (!url) return '';
+      return `<img src="${url}" alt="${alt}" class="rounded-xl border my-6 w-full" loading="lazy" />`;
+    },
+    [INLINES.HYPERLINK]: (node, next) => {
+      const uri = node.data?.uri ?? '';
+      return `<a href="${uri}" target="_blank" rel="noopener noreferrer">${next(node.content)}</a>`;
+    },
+  },
+});
 ---
 
-<DefaultLayout title={title} description="">
-  <Background>
+<BasicLayout title={title} description={shortDescription ?? ''}>
   <article class="mx-auto max-w-3xl px-4 py-16">
 
     <!-- 戻るリンク -->
-    <a
-      href="/blog"
-      class="mb-8 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M19 12H5M12 19l-7-7 7-7" />
-      </svg>
+    <a href="/blog" class="mb-8 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
       記事一覧に戻る
     </a>
 
-    <!-- カテゴリ -->
-    {postCategories.length > 0 && (
-      <div class="mb-4 flex flex-wrap gap-2">
-        {postCategories.map((cat) => (
-          <a
-            href={`/category/${decodeURIComponent(cat.slug)}`}
-            class="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
-          >
-            {cat.name}
-          </a>
-        ))}
-      </div>
-    )}
-
     <!-- ヘッダー -->
     <header class="mb-10">
-      <time datetime={post.date} class="mb-3 block text-sm text-muted-foreground">
-        {date}
-      </time>
-      <h1
-        class="text-3xl font-bold leading-tight tracking-tight md:text-4xl"
-        set:html={title}
-      />
+      <time datetime={publishedDate} class="mb-3 block text-sm text-muted-foreground">{date}</time>
+      <h1 class="text-3xl font-bold leading-tight tracking-tight md:text-4xl">{title}</h1>
+      {shortDescription && (
+        <p class="mt-4 text-lg text-muted-foreground">{shortDescription}</p>
+      )}
 
-      <!-- タグ -->
-      {postTags.length > 0 && (
-        <div class="mt-4 flex flex-wrap gap-2">
-          {postTags.map((tag) => (
-            <a
-              href={`/tag/${decodeURIComponent(tag.slug)}`}
-              class="rounded-full border px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-            >
-              #{tag.name}
-            </a>
-          ))}
+      <!-- 著者 -->
+      {authorName && (
+        <div class="mt-6 flex items-center gap-3">
+          {authorAvatarUrl && (
+            <img src={authorAvatarUrl} alt={authorName} class="h-9 w-9 rounded-full object-cover ring-1 ring-border" />
+          )}
+          <span class="text-sm font-medium">{authorName}</span>
         </div>
       )}
     </header>
 
-    <!-- アイキャッチ画像 -->
-    {featuredImageUrl && (
+    <!-- アイキャッチ -->
+    {imageUrl && (
       <div class="mb-10 overflow-hidden rounded-xl border">
-        <img
-          src={featuredImageUrl}
-          alt={featuredMedia?.alt_text ?? title}
-          class="w-full object-cover"
-          loading="eager"
-        />
+        <img src={imageUrl} alt={imageAlt} class="w-full object-cover" loading="eager" />
       </div>
     )}
 
@@ -120,25 +87,35 @@ const date = formatDate(post.date);
         prose-pre:rounded-xl prose-pre:border prose-pre:bg-muted
         prose-blockquote:border-l-primary prose-blockquote:text-muted-foreground
         prose-img:rounded-xl prose-img:border"
-      set:html={post.content.rendered}
+      set:html={bodyHtml}
     />
 
-    <!-- フッター：タグ再表示 -->
-    {postTags.length > 0 && (
+    <!-- 関連記事 -->
+    {relatedBlogPosts && relatedBlogPosts.length > 0 && (
       <footer class="mt-16 border-t pt-8">
-        <p class="mb-3 text-sm font-medium text-muted-foreground">タグ</p>
-        <div class="flex flex-wrap gap-2">
-          {postTags.map((tag) => (
-            <a
-              href={`/tag/${decodeURIComponent(tag.slug)}`}
-              class="rounded-full border px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-            >
-              #{tag.name}
-            </a>
+        <p class="mb-4 text-sm font-medium text-muted-foreground">関連記事</p>
+        <ul class="grid gap-4 sm:grid-cols-2">
+          {relatedBlogPosts.map((related) => (
+            <li>
+              <a
+                href={`/blog/${related.fields.slug}`}
+                class="group flex gap-4 rounded-xl border p-4 transition-shadow hover:shadow-md"
+              >
+                {related.fields.featuredImage && (
+                  <img
+                    src={assetUrl(related.fields.featuredImage.fields?.file?.url ?? '')}
+                    alt={related.fields.title}
+                    class="h-16 w-24 flex-shrink-0 rounded-lg object-cover"
+                  />
+                )}
+                <span class="text-sm font-medium leading-snug group-hover:text-primary transition-colors">
+                  {related.fields.title}
+                </span>
+              </a>
+            </li>
           ))}
-        </div>
+        </ul>
       </footer>
     )}
   </article>
-</Background>
-</DefaultLayout>
+</BasicLayout>

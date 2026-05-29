@@ -1,0 +1,83 @@
+---
+/**
+ * src/pages/blog/[page].astro
+ * 記事一覧 2ページ目以降 — Contentful
+ */
+import { Background } from '@/components/background';
+import { BlogPosts } from '@/components/blocks/blog-posts';
+import { SITE_TITLE, SITE_DESCRIPTION } from '@/consts';
+import DefaultLayout from '@/layouts/DefaultLayout.astro';
+import { getPosts, assetUrl } from '@/lib/contentful';
+
+const PER_PAGE = 9;
+
+export async function getStaticPaths() {
+  const PER_PAGE = 9;
+  const { total } = await getPosts({ limit: 1, skip: 0 });
+  const totalPages = Math.ceil(total / PER_PAGE);
+  return Array.from({ length: totalPages - 1 }, (_, i) => ({
+    params: { page: String(i + 2) },
+    props: { currentPage: i + 2, totalPages },
+  }));
+}
+
+const { currentPage, totalPages } = Astro.props as { currentPage: number; totalPages: number };
+
+const { posts, total } = await getPosts({
+  limit: PER_PAGE,
+  skip: (currentPage - 1) * PER_PAGE,
+});
+
+const normalizedPosts = posts.map((post) => ({
+  id: post.fields.slug,
+  data: {
+    title: post.fields.title,
+    description: post.fields.shortDescription ?? '',
+    image: assetUrl(post.fields.featuredImage?.fields?.file?.url ?? ''),
+    authorName: post.fields.author?.fields?.name ?? '',
+    authorImage: assetUrl(post.fields.author?.fields?.avatar?.fields?.file?.url ?? ''),
+    pubDate: new Date(post.fields.publishedDate),
+  },
+}));
+---
+
+<DefaultLayout title={`${SITE_TITLE} - ページ ${currentPage}`} description={SITE_DESCRIPTION}>
+  <Background>
+    <div class="py-28 lg:pt-44 lg:pb-32">
+      <BlogPosts posts={normalizedPosts} client:only="react" />
+
+      <nav class="container mx-auto mt-16 flex max-w-5xl items-center justify-center gap-2 px-4">
+        <a
+          href={currentPage === 2 ? '/blog' : `/blog/${currentPage - 1}`}
+          class="inline-flex h-9 items-center gap-1.5 rounded-lg border px-4 text-sm font-medium transition-colors hover:bg-accent"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+          前へ
+        </a>
+        <div class="flex items-center gap-1">
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+            <a
+              href={page === 1 ? '/blog' : `/blog/${page}`}
+              class={`inline-flex h-9 w-9 items-center justify-center rounded-lg text-sm font-medium transition-colors ${page === currentPage ? 'bg-primary text-primary-foreground pointer-events-none' : 'border hover:bg-accent'}`}
+              aria-current={page === currentPage ? 'page' : undefined}
+            >{page}</a>
+          ))}
+        </div>
+        {currentPage < totalPages ? (
+          <a href={`/blog/${currentPage + 1}`} class="inline-flex h-9 items-center gap-1.5 rounded-lg border px-4 text-sm font-medium transition-colors hover:bg-accent">
+            次へ
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+          </a>
+        ) : (
+          <span class="inline-flex h-9 items-center gap-1.5 rounded-lg border px-4 text-sm font-medium opacity-40 cursor-not-allowed">
+            次へ
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+          </span>
+        )}
+      </nav>
+      <p class="mt-4 text-center text-xs text-muted-foreground">
+        {total}件中 {(currentPage - 1) * PER_PAGE + 1}〜{Math.min(currentPage * PER_PAGE, total)}件を表示
+      </p>
+    </div>
+  </Background>
+</DefaultLayout>

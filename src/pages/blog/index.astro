@@ -1,53 +1,28 @@
 ---
 /**
  * src/pages/blog/index.astro
- * 記事一覧ページ 1ページ目 — /blog/[page].astro と同じ構成
+ * 記事一覧 1ページ目 — Contentful
  */
 import { Background } from '@/components/background';
 import { BlogPosts } from '@/components/blocks/blog-posts';
 import { SITE_TITLE, SITE_DESCRIPTION } from '@/consts';
 import DefaultLayout from '@/layouts/DefaultLayout.astro';
-import { getPosts, getFeaturedMedia, stripHtml, type WPPost } from '@/lib/wordpress';
+import { getPosts, assetUrl } from '@/lib/contentful';
 
 const PER_PAGE = 9;
-const currentPage = 1;
 
-// 総記事数取得
-const allPosts = await getPosts({ per_page: 100 }).catch(() => [] as WPPost[]);
-const totalPages = Math.ceil(allPosts.length / PER_PAGE);
-const totalPosts = allPosts.length;
+const { posts, total } = await getPosts({ limit: PER_PAGE, skip: 0 });
+const totalPages = Math.ceil(total / PER_PAGE);
 
-// 1ページ目の記事を取得
-let posts: WPPost[] = [];
-try {
-  posts = await getPosts({ per_page: PER_PAGE, page: 1 });
-} catch (e) {
-  console.warn('WordPress API に接続できません。', e);
-}
-
-// アイキャッチを並列取得
-const featuredImages = await Promise.all(
-  posts.map(async (post) => {
-    if (!post.featured_media) return null;
-    const media = await getFeaturedMedia(post.featured_media);
-    return (
-      media?.media_details?.sizes?.medium_large?.source_url ??
-      media?.media_details?.sizes?.large?.source_url ??
-      media?.source_url ??
-      null
-    );
-  })
-);
-
-const normalizedPosts = posts.map((post, i) => ({
-  id: decodeURIComponent(post.slug),
+const normalizedPosts = posts.map((post) => ({
+  id: post.fields.slug,
   data: {
-    title: stripHtml(post.title.rendered),
-    description: stripHtml(post.excerpt.rendered),
-    image: featuredImages[i] ?? '',
-    authorName: '',
-    authorImage: '',
-    pubDate: new Date(post.date),
+    title: post.fields.title,
+    description: post.fields.shortDescription ?? '',
+    image: assetUrl(post.fields.featuredImage?.fields?.file?.url ?? ''),
+    authorName: post.fields.author?.fields?.name ?? '',
+    authorImage: assetUrl(post.fields.author?.fields?.avatar?.fields?.file?.url ?? ''),
+    pubDate: new Date(post.fields.publishedDate),
   },
 }));
 ---
@@ -57,55 +32,30 @@ const normalizedPosts = posts.map((post, i) => ({
     <div class="py-28 lg:pt-44 lg:pb-32">
       <BlogPosts posts={normalizedPosts} client:only="react" />
 
-      <!-- ページネーション（記事が1ページ以上ある場合のみ表示） -->
       {totalPages > 1 && (
         <nav class="container mx-auto mt-16 flex max-w-5xl items-center justify-center gap-2 px-4">
-          <!-- 前のページ（1ページ目は非活性） -->
           <span class="inline-flex h-9 items-center gap-1.5 rounded-lg border px-4 text-sm font-medium opacity-40 cursor-not-allowed">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M19 12H5M12 19l-7-7 7-7" />
-            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
             前へ
           </span>
-
-          <!-- ページ番号 -->
           <div class="flex items-center gap-1">
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
-              const href = page === 1 ? '/blog' : `/blog/${page}`;
-              const isCurrent = page === currentPage;
-              return (
-                <a
-                  href={href}
-                  class={`inline-flex h-9 w-9 items-center justify-center rounded-lg text-sm font-medium transition-colors
-                    ${isCurrent
-                      ? 'bg-primary text-primary-foreground pointer-events-none'
-                      : 'border hover:bg-accent'
-                    }`}
-                  aria-current={isCurrent ? 'page' : undefined}
-                >
-                  {page}
-                </a>
-              );
-            })}
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+              <a
+                href={page === 1 ? '/blog' : `/blog/${page}`}
+                class={`inline-flex h-9 w-9 items-center justify-center rounded-lg text-sm font-medium transition-colors ${page === 1 ? 'bg-primary text-primary-foreground pointer-events-none' : 'border hover:bg-accent'}`}
+                aria-current={page === 1 ? 'page' : undefined}
+              >{page}</a>
+            ))}
           </div>
-
-          <!-- 次のページ -->
-          <a
-            href="/blog/2"
-            class="inline-flex h-9 items-center gap-1.5 rounded-lg border px-4 text-sm font-medium transition-colors hover:bg-accent"
-          >
+          <a href="/blog/2" class="inline-flex h-9 items-center gap-1.5 rounded-lg border px-4 text-sm font-medium transition-colors hover:bg-accent">
             次へ
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M5 12h14M12 5l7 7-7 7" />
-            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
           </a>
         </nav>
       )}
-
-      <!-- 件数表示 -->
-      {totalPosts > 0 && (
+      {total > 0 && (
         <p class="mt-4 text-center text-xs text-muted-foreground">
-          {totalPosts}件中 1〜{Math.min(PER_PAGE, totalPosts)}件を表示
+          {total}件中 1〜{Math.min(PER_PAGE, total)}件を表示
         </p>
       )}
     </div>

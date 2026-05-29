@@ -1,7 +1,7 @@
 ---
 import BaseHead from "@/components/BaseHead.astro";
 import { Footer } from "@/components/blocks/footer";
-import NavbarWrapper from '@/components/blocks/navbar-wrapper.astro';
+import { Navbar } from '@/components/blocks/navbar';
 
 const { title, description } = Astro.props;
 ---
@@ -11,7 +11,7 @@ const { title, description } = Astro.props;
     <BaseHead title={title} description={description} />
   </head>
   <body class={`h-screen antialiased`}>
-    <NavbarWrapper />
+    <Navbar />
     <main>
       <section class="mx-auto px-4 py-12 lg:pt-24 lg:pb-32">
         <article class="prose-lg dark:prose-invert">
